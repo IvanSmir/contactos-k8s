@@ -48,21 +48,21 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
-            steps {
-                echo 'Desplegando en Kubernetes...'
-                sh 'kubectl apply -f k8s/'
-                sh 'kubectl rollout restart deployment/backend -n devops-lab'
-                sh 'kubectl rollout restart deployment/frontend -n devops-lab'
-            }
-        }
+        // stage('Deploy to Kubernetes') {
+        //     steps {
+        //         echo 'Desplegando en Kubernetes...'
+        //         sh 'kubectl apply -f k8s/'
+        //         sh 'kubectl rollout restart deployment/backend -n devops-lab'
+        //         sh 'kubectl rollout restart deployment/frontend -n devops-lab'
+        //     }
+        // }
 
-        stage('Verify') {
-            steps {
-                echo 'Verificando pods...'
-                sh 'kubectl get pods -n devops-lab'
-            }
-        }
+        // stage('Verify') {
+        //     steps {
+        //         echo 'Verificando pods...'
+        //         sh 'kubectl get pods -n devops-lab'
+        //     }
+        // }
     }
 
     post {
