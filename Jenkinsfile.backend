@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+        BACKEND_IMAGE         = "${DOCKERHUB_CREDENTIALS_USR}/contactos-backend"
+        IMAGE_TAG             = "${BUILD_NUMBER}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify Changes') {
+            steps {
+                script {
+                    def changes = sh(script: "git diff --name-only HEAD~1 HEAD || echo 'backend/'", returnStdout: true).trim()
+                    echo "Archivos cambiados:\n${changes}"
+                    if (!changes.contains('backend/')) {
+                        currentBuild.result = 'NOT_BUILT'
+                        error('No hay cambios en backend/. Saltando pipeline.')
+                    }
+                }
+            }
+        }
+
+        stage('Build Backend') {
+            steps {
+                echo 'Construyendo imagen del backend...'
+                sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG -t $BACKEND_IMAGE:latest ./backend'
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                echo 'Publicando imagen del backend en Docker Hub...'
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh 'docker push $BACKEND_IMAGE:$IMAGE_TAG'
+                sh 'docker push $BACKEND_IMAGE:latest'
+            }
+            post {
+                always {
+                    sh 'docker logout'
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "Backend publicado: $BACKEND_IMAGE:$IMAGE_TAG" }
+        failure { echo 'Pipeline del backend fallido. Revisar logs.' }
+        not_built { echo 'Sin cambios en backend. Pipeline omitido.' }
+    }
+}

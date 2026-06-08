@@ -1,0 +1,58 @@
+pipeline {
+    agent any
+
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+        FRONTEND_IMAGE        = "${DOCKERHUB_CREDENTIALS_USR}/contactos-frontend"
+        IMAGE_TAG             = "${BUILD_NUMBER}"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify Changes') {
+            steps {
+                script {
+                    def changes = sh(script: "git diff --name-only HEAD~1 HEAD || echo 'frontend/'", returnStdout: true).trim()
+                    echo "Archivos cambiados:\n${changes}"
+                    if (!changes.contains('frontend/')) {
+                        currentBuild.result = 'NOT_BUILT'
+                        error('No hay cambios en frontend/. Saltando pipeline.')
+                    }
+                }
+            }
+        }
+
+        stage('Build Frontend') {
+            steps {
+                echo 'Construyendo imagen del frontend...'
+                sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG -t $FRONTEND_IMAGE:latest ./frontend'
+            }
+        }
+
+        stage('Push to Docker Hub') {
+            steps {
+                echo 'Publicando imagen del frontend en Docker Hub...'
+                sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+                sh 'docker push $FRONTEND_IMAGE:$IMAGE_TAG'
+                sh 'docker push $FRONTEND_IMAGE:latest'
+            }
+            post {
+                always {
+                    sh 'docker logout'
+                }
+            }
+        }
+    }
+
+    post {
+        success { echo "Frontend publicado: $FRONTEND_IMAGE:$IMAGE_TAG" }
+        failure { echo 'Pipeline del frontend fallido. Revisar logs.' }
+        not_built { echo 'Sin cambios en frontend. Pipeline omitido.' }
+    }
+}
