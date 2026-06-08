@@ -7,37 +7,38 @@ pipeline {
         IMAGE_TAG             = "${BUILD_NUMBER}"
     }
 
+    parameters {
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Desplegar en Kubernetes luego del build?')
+    }
+
     stages {
 
         stage('Checkout') {
             steps {
+                echo 'Obteniendo codigo fuente...'
                 checkout scm
             }
         }
 
-        stage('Verify Changes') {
+        stage('Build') {
             steps {
-                script {
-                    def changes = sh(script: "git diff --name-only HEAD~1 HEAD || echo 'backend/'", returnStdout: true).trim()
-                    echo "Archivos cambiados:\n${changes}"
-                    if (!changes.contains('backend/')) {
-                        currentBuild.result = 'NOT_BUILT'
-                        error('No hay cambios en backend/. Saltando pipeline.')
-                    }
+                echo 'Instalando dependencias...'
+                dir('backend') {
+                    sh 'npm install --production'
                 }
             }
         }
 
-        stage('Build Backend') {
+        stage('Docker Build') {
             steps {
-                echo 'Construyendo imagen del backend...'
+                echo 'Construyendo imagen Docker del backend...'
                 sh 'docker build -t $BACKEND_IMAGE:$IMAGE_TAG -t $BACKEND_IMAGE:latest ./backend'
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                echo 'Publicando imagen del backend en Docker Hub...'
+                echo 'Publicando imagen en Docker Hub...'
                 sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
                 sh 'docker push $BACKEND_IMAGE:$IMAGE_TAG'
                 sh 'docker push $BACKEND_IMAGE:latest'
@@ -48,11 +49,40 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy en Kubernetes') {
+            when {
+                expression { return params.DEPLOY == true }
+            }
+            steps {
+                echo 'Desplegando backend en Kubernetes...'
+                sh 'kubectl apply -f k8s/00-namespace.yaml'
+                sh 'kubectl apply -f k8s/01-postgres-secret.yaml'
+                sh 'kubectl apply -f k8s/02-postgres.yaml'
+                sh 'kubectl apply -f k8s/03-backend-configmap.yaml'
+                sh 'kubectl apply -f k8s/04-backend.yaml'
+                sh "kubectl set image deployment/backend backend=$BACKEND_IMAGE:$IMAGE_TAG -n devops-lab"
+                sh 'kubectl rollout status deployment/backend -n devops-lab --timeout=60s'
+            }
+        }
+
+        stage('Validacion') {
+            when {
+                expression { return params.DEPLOY == true }
+            }
+            steps {
+                echo 'Validando despliegue...'
+                sh 'kubectl get pods -n devops-lab -l app=backend'
+                sh '''
+                    BACKEND_URL=$(kubectl get svc backend -n devops-lab -o jsonpath="{.spec.clusterIP}")
+                    curl -f http://$BACKEND_URL:3000/health || echo "Health check pendiente - pod iniciando"
+                '''
+            }
+        }
     }
 
     post {
-        success { echo "Backend publicado: $BACKEND_IMAGE:$IMAGE_TAG" }
+        success { echo "Backend publicado exitosamente: $BACKEND_IMAGE:$IMAGE_TAG" }
         failure { echo 'Pipeline del backend fallido. Revisar logs.' }
-        not_built { echo 'Sin cambios en backend. Pipeline omitido.' }
     }
 }

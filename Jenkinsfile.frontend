@@ -7,37 +7,38 @@ pipeline {
         IMAGE_TAG             = "${BUILD_NUMBER}"
     }
 
+    parameters {
+        booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Desplegar en Kubernetes luego del build?')
+    }
+
     stages {
 
         stage('Checkout') {
             steps {
+                echo 'Obteniendo codigo fuente...'
                 checkout scm
             }
         }
 
-        stage('Verify Changes') {
+        stage('Build') {
             steps {
-                script {
-                    def changes = sh(script: "git diff --name-only HEAD~1 HEAD || echo 'frontend/'", returnStdout: true).trim()
-                    echo "Archivos cambiados:\n${changes}"
-                    if (!changes.contains('frontend/')) {
-                        currentBuild.result = 'NOT_BUILT'
-                        error('No hay cambios en frontend/. Saltando pipeline.')
-                    }
+                echo 'Verificando archivos del frontend...'
+                dir('frontend') {
+                    sh 'ls -la'
                 }
             }
         }
 
-        stage('Build Frontend') {
+        stage('Docker Build') {
             steps {
-                echo 'Construyendo imagen del frontend...'
+                echo 'Construyendo imagen Docker del frontend...'
                 sh 'docker build -t $FRONTEND_IMAGE:$IMAGE_TAG -t $FRONTEND_IMAGE:latest ./frontend'
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                echo 'Publicando imagen del frontend en Docker Hub...'
+                echo 'Publicando imagen en Docker Hub...'
                 sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
                 sh 'docker push $FRONTEND_IMAGE:$IMAGE_TAG'
                 sh 'docker push $FRONTEND_IMAGE:latest'
@@ -48,11 +49,34 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy en Kubernetes') {
+            when {
+                expression { return params.DEPLOY == true }
+            }
+            steps {
+                echo 'Desplegando frontend en Kubernetes...'
+                sh 'kubectl apply -f k8s/00-namespace.yaml'
+                sh 'kubectl apply -f k8s/05-frontend.yaml'
+                sh "kubectl set image deployment/frontend frontend=$FRONTEND_IMAGE:$IMAGE_TAG -n devops-lab"
+                sh 'kubectl rollout status deployment/frontend -n devops-lab --timeout=60s'
+            }
+        }
+
+        stage('Validacion') {
+            when {
+                expression { return params.DEPLOY == true }
+            }
+            steps {
+                echo 'Validando despliegue...'
+                sh 'kubectl get pods -n devops-lab -l app=frontend'
+                sh 'kubectl get svc frontend -n devops-lab'
+            }
+        }
     }
 
     post {
-        success { echo "Frontend publicado: $FRONTEND_IMAGE:$IMAGE_TAG" }
+        success { echo "Frontend publicado exitosamente: $FRONTEND_IMAGE:$IMAGE_TAG" }
         failure { echo 'Pipeline del frontend fallido. Revisar logs.' }
-        not_built { echo 'Sin cambios en frontend. Pipeline omitido.' }
     }
 }

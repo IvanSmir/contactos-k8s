@@ -1,10 +1,29 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const client = require('prom-client');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Prometheus metrics
+const register = new client.Registry();
+client.collectDefaultMetrics({ register });
+
+const httpRequestCounter = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total de requests HTTP',
+  labelNames: ['method', 'route', 'status'],
+  registers: [register],
+});
+
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    httpRequestCounter.inc({ method: req.method, route: req.path, status: res.statusCode });
+  });
+  next();
+});
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -49,6 +68,21 @@ async function initDB() {
 // GET /health
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', service: 'contactos-backend' });
+});
+
+// GET /version
+app.get('/version', (req, res) => {
+  res.json({
+    version: process.env.APP_VERSION || '1.0.0',
+    service: 'contactos-backend',
+    environment: process.env.NODE_ENV || 'development',
+  });
+});
+
+// GET /metrics (Prometheus)
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 // GET /contactos?search=...
