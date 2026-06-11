@@ -11,6 +11,74 @@ data:
         type: prometheus
         url: http://prometheus:9090
         isDefault: true
+        access: proxy
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: devops-lab
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        folder: DevOps Lab
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-app
+  namespace: devops-lab
+data:
+  app-dashboard.json: |
+    {
+      "title": "Contactos App - Monitoreo",
+      "uid": "contactos-app",
+      "timezone": "browser",
+      "panels": [
+        {
+          "id": 1,
+          "title": "HTTP Requests Total",
+          "type": "stat",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [{"expr": "sum(http_requests_total)", "datasource": "Prometheus"}]
+        },
+        {
+          "id": 2,
+          "title": "Requests por ruta",
+          "type": "bargauge",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+          "targets": [{"expr": "sum by(route) (http_requests_total)", "legendFormat": "{{route}}", "datasource": "Prometheus"}]
+        },
+        {
+          "id": 3,
+          "title": "Memoria del Backend (bytes)",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+          "targets": [{"expr": "process_resident_memory_bytes", "legendFormat": "Memoria RSS", "datasource": "Prometheus"}]
+        },
+        {
+          "id": 4,
+          "title": "CPU del Backend",
+          "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "targets": [{"expr": "rate(process_cpu_seconds_total[1m])", "legendFormat": "CPU", "datasource": "Prometheus"}]
+        },
+        {
+          "id": 5,
+          "title": "Requests por status HTTP",
+          "type": "piechart",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "targets": [{"expr": "sum by(status) (http_requests_total)", "legendFormat": "HTTP {{status}}", "datasource": "Prometheus"}]
+        }
+      ],
+      "schemaVersion": 36,
+      "version": 1
+    }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -41,10 +109,22 @@ spec:
             - name: datasource
               mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
               subPath: datasource.yaml
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+            - name: dashboard-app
+              mountPath: /var/lib/grafana/dashboards/app-dashboard.json
+              subPath: app-dashboard.json
       volumes:
         - name: datasource
           configMap:
             name: grafana-datasource
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboard-app
+          configMap:
+            name: grafana-dashboard-app
 ---
 apiVersion: v1
 kind: Service
