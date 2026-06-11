@@ -275,7 +275,7 @@ Ir a **Status → Targets** para ver todos los servicios monitoreados:
 - `kubernetes-nodes` — métricas del cluster
 - `prometheus` — automonitoreo
 
-**Queries para demostrar en el examen:**
+**Queries para demostrar:**
 
 | Qué muestra | Query |
 |-------------|-------|
