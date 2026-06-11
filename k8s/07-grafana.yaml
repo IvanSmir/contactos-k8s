@@ -12,6 +12,7 @@ data:
         url: http://prometheus:9090
         isDefault: true
         access: proxy
+        editable: true
 ---
 apiVersion: v1
 kind: ConfigMap
