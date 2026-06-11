@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: contactos-frontend:latest
-          imagePullPolicy: Never        # usa imagen local de Minikube
+          image: ivansmir/contactos-frontend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 ---

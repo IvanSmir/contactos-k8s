@@ -17,8 +17,8 @@ spec:
     spec:
       containers:
         - name: backend
-          image: contactos-backend:latest
-          imagePullPolicy: Never        # usa imagen local de Minikube
+          image: ivansmir/contactos-backend:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
           envFrom:
