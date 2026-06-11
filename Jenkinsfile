@@ -97,9 +97,9 @@ pipeline {
                 sh 'kubectl get svc -n devops-lab'
                 echo 'Verificando endpoints de la aplicacion...'
                 sh '''
-                    BACKEND_IP=$(kubectl get svc backend-service -n devops-lab -o jsonpath="{.spec.clusterIP}")
-                    curl -sf http://$BACKEND_IP:3000/health && echo "✓ /health OK"
-                    curl -sf http://$BACKEND_IP:3000/version && echo "✓ /version OK"
+                    kubectl run curl-test --image=curlimages/curl --rm -i --restart=Never -n devops-lab -- \
+                        sh -c "curl -sf http://backend-service:3000/health && echo ✓ /health OK && \
+                               curl -sf http://backend-service:3000/version && echo ✓ /version OK"
                 '''
             }
         }
