@@ -1,17 +1,32 @@
 # Contactos K8s – Plataforma DevOps Completa
 
-Proyecto integrador de CI/CD con Jenkins, Kubernetes y Monitoreo.
+Proyecto integrador de CI/CD con Jenkins, Kubernetes y Monitoreo para el examen final de DevOps.
+
+**Empresa:** ContactosTech S.A.
+
+---
 
 ## Arquitectura
 
 ```
-GitHub → Jenkins → Docker Hub → Kubernetes
-                                    ├── backend (Node.js + Express)
-                                    ├── frontend (Nginx)
-                                    ├── postgres (Base de datos)
-                                    ├── prometheus (Métricas)
-                                    └── grafana (Dashboards)
+Developer
+    └── git push → GitHub
+                       └── Jenkins (Docker)
+                                   ├── npm install
+                                   ├── docker build
+                                   ├── docker push → Docker Hub
+                                   └── kubectl apply → Minikube (Kubernetes)
+                                                           ├── namespace: devops-lab
+                                                           ├── backend (Node.js)
+                                                           ├── frontend (Nginx)
+                                                           ├── postgres
+                                                           ├── prometheus
+                                                           ├── grafana
+                                                           ├── kube-state-metrics
+                                                           └── node-exporter
 ```
+
+---
 
 ## Tecnologías
 
@@ -19,171 +34,351 @@ GitHub → Jenkins → Docker Hub → Kubernetes
 |------|-----------|
 | CI/CD | Jenkins |
 | Contenedores | Docker |
-| Orquestación | Kubernetes |
+| Orquestación | Kubernetes (Minikube) |
 | Monitoreo | Prometheus + Grafana |
 | Control de versiones | Git / GitHub |
 | Backend | Node.js + Express |
 | Frontend | HTML + Nginx |
 | Base de datos | PostgreSQL |
 
+---
+
 ## Estructura del repositorio
 
 ```
 contactos-k8s/
 ├── backend/
-│   ├── index.js          # API REST (Express)
-│   ├── package.json
-│   └── Dockerfile
+│   ├── index.js              # API REST con /health, /version, /metrics
+│   ├── package.json          # dependencias: express, pg, prom-client
+│   ├── Dockerfile
+│   └── .dockerignore
 ├── frontend/
 │   ├── index.html
 │   ├── nginx.conf
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── .dockerignore
 ├── k8s/
-│   ├── 00-namespace.yaml
-│   ├── 01-postgres-secret.yaml
-│   ├── 02-postgres.yaml
-│   ├── 03-backend-configmap.yaml
-│   ├── 04-backend.yaml
-│   ├── 05-frontend.yaml
-│   ├── 06-prometheus.yaml
-│   └── 07-grafana.yaml
+│   ├── 00-namespace.yaml         # namespace devops-lab
+│   ├── 01-postgres-secret.yaml   # credenciales DB en base64
+│   ├── 02-postgres.yaml          # base de datos
+│   ├── 03-backend-configmap.yaml # variables de configuración
+│   ├── 04-backend.yaml           # deployment + service NodePort 30300
+│   ├── 05-frontend.yaml          # deployment + service NodePort 30080
+│   ├── 06-prometheus.yaml        # prometheus + RBAC
+│   ├── 07-grafana.yaml           # grafana + dashboards
+│   └── 08-kube-state-metrics.yaml # métricas de pods + node-exporter
 ├── jenkins/
-│   └── Dockerfile        # Jenkins con Docker CLI + kubectl + git
-├── Jenkinsfile.backend
-├── Jenkinsfile.frontend
-└── docker-compose.jenkins.yml
+│   └── Dockerfile            # Jenkins con Docker CLI + Node.js + kubectl + git
+├── Jenkinsfile               # pipeline CI/CD con 6 stages
+├── Jenkinsfile.backend       # pipeline solo backend
+├── Jenkinsfile.frontend      # pipeline solo frontend
+├── docker-compose.jenkins.yml
+├── setup-jenkins-k8s.sh      # conecta Jenkins con Minikube
+└── README.md
 ```
 
-## Instalación y ejecución
+---
 
-### 1. Iniciar Minikube
+## Requisitos previos
+
+```bash
+docker --version      # Docker Desktop instalado
+minikube version      # Minikube instalado
+kubectl version --client
+git --version
+```
+
+Instalar Minikube si no está:
+```bash
+brew install minikube
+```
+
+---
+
+## Instalación y ejecución completa
+
+### Paso 1 — Iniciar Minikube
 
 ```bash
 minikube start
+minikube addons enable metrics-server
 kubectl get nodes
+# minikube   Ready   control-plane
 ```
 
-### 2. Levantar Jenkins
+### Paso 2 — Clonar el repositorio
+
+```bash
+git clone https://github.com/IvanSmir/contactos-k8s.git
+cd contactos-k8s
+```
+
+### Paso 3 — Levantar Jenkins
 
 ```bash
 docker compose -f docker-compose.jenkins.yml up -d --build
 ```
 
-Jenkins disponible en: http://localhost:8090
+Verificar que Jenkins está corriendo:
+```bash
+docker ps | grep jenkins
+```
 
-Obtener contraseña inicial:
+### Paso 4 — Conectar Jenkins con Minikube
+
+```bash
+./setup-jenkins-k8s.sh
+```
+
+Verificar conexión:
+```bash
+docker exec jenkins kubectl get nodes
+# minikube   Ready
+```
+
+### Paso 5 — Obtener contraseña inicial de Jenkins
+
 ```bash
 docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-### 3. Configurar Jenkins
+Abrir **http://localhost:8090** y completar la configuración inicial.
 
-**Credenciales Docker Hub:**
-- Manage Jenkins → Credentials → Global → Add Credentials
-- Kind: `Username with password`
-- ID: `dockerhub-credentials`
+### Paso 6 — Configurar credenciales en Jenkins
 
-**Crear pipelines:**
-- `contactos-backend` → Script Path: `Jenkinsfile.backend`
-- `contactos-frontend` → Script Path: `Jenkinsfile.frontend`
-- Repository URL: `https://github.com/IvanSmir/contactos-k8s.git`
+**Manage Jenkins → Credentials → Global → Add Credentials**
 
-### 4. Desplegar en Kubernetes
+| Campo | Valor |
+|-------|-------|
+| Kind | Username with password |
+| Username | tu usuario de Docker Hub |
+| Password | tu password o Access Token |
+| ID | `dockerhub-credentials` |
 
-Aplicar todos los manifiestos:
+### Paso 7 — Crear el pipeline en Jenkins
+
+1. **New Item** → nombre: `contactos-ci` → **Pipeline** → OK
+2. Bajar hasta sección **Pipeline**
+3. Definition: `Pipeline script from SCM`
+4. SCM: `Git`
+5. Repository URL: `https://github.com/IvanSmir/contactos-k8s.git`
+6. Branch: `*/main`
+7. Script Path: `Jenkinsfile`
+8. **Save**
+
+---
+
+## Ejecutar el pipeline
+
+### CI — Solo build y push (sin deploy)
+
+Jenkins → `contactos-ci` → **Build Now**
+
+```
+Stage 1 - Checkout      → descarga código de GitHub
+Stage 2 - Build         → npm install en el backend
+Stage 3 - Docker Build  → construye imágenes backend y frontend en paralelo
+Stage 4 - Push          → publica en Docker Hub con tag :latest y :N° de build
+```
+
+### CD — Build + deploy en Kubernetes (manual)
+
+Jenkins → `contactos-ci` → **Build with Parameters** → activar `DEPLOY = true` → **Build**
+
+```
+Stage 1 - Checkout
+Stage 2 - Build
+Stage 3 - Docker Build
+Stage 4 - Push
+Stage 5 - Deploy        → kubectl apply -f k8s/ + actualiza imágenes
+Stage 6 - Validación    → verifica pods activos + /health + /version
+```
+
+---
+
+## Desplegar en Kubernetes manualmente
+
 ```bash
-kubectl apply -f k8s/
+# Aplicar todos los manifiestos
+docker exec jenkins kubectl apply -f k8s/
+
+# Verificar que todo está corriendo
+docker exec jenkins kubectl get all -n devops-lab
 ```
 
-Verificar que todo esté corriendo:
+Resultado esperado:
+```
+NAME                                  READY   STATUS
+pod/backend-xxx                       1/1     Running
+pod/frontend-xxx                      1/1     Running
+pod/grafana-xxx                       1/1     Running
+pod/kube-state-metrics-xxx            1/1     Running
+pod/node-exporter-xxx                 1/1     Running
+pod/postgres-xxx                      1/1     Running
+pod/prometheus-xxx                    1/1     Running
+```
+
+---
+
+## Probar cada servicio
+
+Obtener la IP de Minikube:
 ```bash
-kubectl get pods -n devops-lab
-kubectl get svc -n devops-lab
+minikube ip
+# 192.168.49.2
 ```
 
-**Deploy manual desde Jenkins:**
-- Ir al pipeline → **Build with Parameters** → activar `DEPLOY = true`
-
-### 5. Acceder a los servicios
-
+### Frontend
 ```bash
-minikube ip  # obtener la IP
+curl http://192.168.49.2:30080
+# Abre en navegador: http://192.168.49.2:30080
 ```
 
-| Servicio | Puerto |
-|----------|--------|
-| Frontend | `<minikube-ip>:30080` |
-| Prometheus | `<minikube-ip>:30090` |
-| Grafana | `<minikube-ip>:30030` |
+### Backend — endpoints obligatorios
+```bash
+# Health check
+curl http://192.168.49.2:30300/health
+# {"status":"ok","service":"contactos-backend"}
 
-Grafana: usuario `admin` / contraseña `admin123`
+# Version
+curl http://192.168.49.2:30300/version
+# {"version":"1.0.0","service":"contactos-backend","environment":"development"}
 
-## Pipeline CI/CD
+# Métricas Prometheus
+curl http://192.168.49.2:30300/metrics
+# process_cpu_seconds_total, http_requests_total, ...
 
+# API de contactos
+curl http://192.168.49.2:30300/contactos
 ```
-Stage 1: Checkout        → Obtiene código de GitHub
-Stage 2: Build           → npm install
-Stage 3: Docker Build    → Construye imagen Docker
-Stage 4: Push            → Publica en Docker Hub
-Stage 5: Deploy (manual) → kubectl apply en Kubernetes
-Stage 6: Validación      → Verifica pods y accesibilidad
+
+### ConfigMap y Secret
+```bash
+# Ver ConfigMap (variables de configuración)
+docker exec jenkins kubectl describe configmap backend-config -n devops-lab
+
+# Ver Secrets (credenciales)
+docker exec jenkins kubectl get secret -n devops-lab
+docker exec jenkins kubectl describe secret postgres-secret -n devops-lab
 ```
 
-El deploy en Kubernetes es **manual**: se activa marcando el parámetro `DEPLOY = true` al correr el pipeline.
-
-## Endpoints del backend
-
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/health` | Estado del servicio |
-| GET | `/version` | Versión de la aplicación |
-| GET | `/metrics` | Métricas Prometheus |
-| GET | `/contactos` | Listar contactos |
-| GET | `/contactos?search=texto` | Buscar contactos |
-| POST | `/contactos` | Crear contacto |
-| DELETE | `/contactos/:id` | Eliminar contacto |
+---
 
 ## Monitoreo
 
-**Prometheus** (puerto 30090) recolecta métricas de:
-- Pods del namespace `devops-lab`
-- Endpoint `/metrics` del backend (requests HTTP por ruta y status)
-- Métricas de Node.js (CPU, memoria, event loop)
+### Prometheus — http://192.168.49.2:30090
 
-**Grafana** (puerto 30030) muestra dashboards de:
-- Estado de pods
-- Consumo de CPU y memoria
-- Total de requests HTTP
+Ir a **Status → Targets** para ver todos los servicios monitoreados:
+- `contactos-backend` — métricas de la aplicación
+- `kube-state-metrics` — estado de pods y deployments
+- `node-exporter` — CPU y memoria del nodo
+- `kubernetes-nodes` — métricas del cluster
+- `prometheus` — automonitoreo
 
-Datasource de Prometheus ya configurado automáticamente al iniciar.
+**Queries para demostrar en el examen:**
 
-## Escalado
+| Qué muestra | Query |
+|-------------|-------|
+| Requests totales al backend | `http_requests_total` |
+| Requests por ruta | `sum by(route) (http_requests_total)` |
+| CPU del nodo | `rate(node_cpu_seconds_total{mode!="idle"}[1m])` |
+| Memoria disponible | `node_memory_MemAvailable_bytes` |
+| Estado de pods | `kube_pod_status_phase` |
+| Pods corriendo | `kube_pod_status_ready{condition="true"}` |
+| CPU del backend | `rate(process_cpu_seconds_total[1m])` |
+| Memoria del backend | `process_resident_memory_bytes` |
+
+### Grafana — http://192.168.49.2:30030
+
+Usuario: `admin` / Contraseña: `admin123`
+
+**Dashboard preconfigurado:**
+- Ir a **Dashboards → DevOps Lab → Contactos App - Monitoreo**
+- Muestra: requests HTTP, CPU, memoria, requests por status
+
+**Importar dashboard de Kubernetes (recomendado para el examen):**
+1. Dashboards → **Import**
+2. ID: `315` → **Load**
+3. Seleccionar datasource: `Prometheus`
+4. **Import**
+
+Muestra: CPU/memoria por pod, estado del cluster, network.
+
+---
+
+## Comandos útiles para el examen
 
 ```bash
-kubectl scale deployment backend -n devops-lab --replicas=3
-kubectl get pods -n devops-lab
+# Ver todos los recursos del namespace
+docker exec jenkins kubectl get all -n devops-lab
+
+# Ver logs del backend
+docker exec jenkins kubectl logs -n devops-lab deployment/backend
+
+# Ver variables de entorno del backend (ConfigMap + Secret)
+docker exec jenkins kubectl describe pod -n devops-lab -l app=backend
+
+# Escalar el backend (para demostrar resiliencia)
+docker exec jenkins kubectl scale deployment backend -n devops-lab --replicas=3
+docker exec jenkins kubectl get pods -n devops-lab
+
+# Matar un pod y ver que Kubernetes lo recrea (resiliencia)
+docker exec jenkins kubectl delete pod -n devops-lab -l app=backend
+docker exec jenkins kubectl get pods -n devops-lab -w
+
+# Rollback a versión anterior
+docker exec jenkins kubectl rollout undo deployment/backend -n devops-lab
+
+# Ver historial de deployments
+docker exec jenkins kubectl rollout history deployment/backend -n devops-lab
 ```
 
-## Diagnóstico
+---
+
+## Reiniciar el entorno (si se apaga la computadora)
 
 ```bash
-kubectl logs -n devops-lab deployment/backend
-kubectl logs -n devops-lab deployment/frontend
-kubectl describe pod <nombre-pod> -n devops-lab
-kubectl get events -n devops-lab --sort-by=.metadata.creationTimestamp
+# 1. Arrancar Minikube
+minikube start
+
+# 2. Levantar Jenkins
+docker compose -f docker-compose.jenkins.yml up -d
+
+# 3. Reconectar Jenkins con Minikube
+./setup-jenkins-k8s.sh
+
+# 4. Verificar
+docker exec jenkins kubectl get nodes
+docker exec jenkins kubectl get pods -n devops-lab
 ```
 
-## Limpieza
+---
 
-```bash
-kubectl delete namespace devops-lab
-minikube stop
-docker compose -f docker-compose.jenkins.yml down
-```
+## URLs de acceso
 
-## Problemas encontrados
+| Servicio | URL |
+|----------|-----|
+| Jenkins | http://localhost:8090 |
+| Frontend | http://192.168.49.2:30080 |
+| Backend /health | http://192.168.49.2:30300/health |
+| Backend /version | http://192.168.49.2:30300/version |
+| Backend /metrics | http://192.168.49.2:30300/metrics |
+| Prometheus | http://192.168.49.2:30090 |
+| Grafana | http://192.168.49.2:30030 |
 
-- **Maven 3.9.9 no disponible** en mirror de Apache → resuelto usando `repo.maven.apache.org`
-- **Permisos docker.sock en Mac** → resuelto con `user: root` en docker-compose
-- **Workspace corrupto en Jenkins** → resuelto borrando el workspace manualmente
-- **git no instalado en contenedor Jenkins** → agregado al Dockerfile
+> Reemplazar `192.168.49.2` con el resultado de `minikube ip` si es diferente.
+
+---
+
+## Problemas encontrados y soluciones
+
+| Problema | Solución |
+|----------|----------|
+| Permisos denegados en docker.sock en Mac | Agregar `user: root` en docker-compose |
+| Workspace corrupto en Jenkins | `docker exec jenkins rm -rf /var/jenkins_home/workspace/contactos-ci` |
+| git no instalado en Jenkins | Agregar `git` al Dockerfile de Jenkins |
+| npm no instalado en Jenkins | Agregar Node.js 18 al Dockerfile de Jenkins |
+| Jenkins no conecta con Minikube | Correr `./setup-jenkins-k8s.sh` después de cada reinicio |
+| kubeconfig apunta a rutas del host | Script corrige rutas a `/root/.minikube/` dentro del contenedor |
+| Backend sin acceso externo | Cambiar Service de `ClusterIP` a `NodePort 30300` |
+| Prometheus sin métricas de pods/CPU | Agregar `kube-state-metrics` y `node-exporter` con RBAC |
